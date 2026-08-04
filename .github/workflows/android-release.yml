@@ -70,6 +70,14 @@ jobs:
           fi
           echo "commit=$commit"
           
+      - name: 配置 Git
+        if: ${{ env.commit }}
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git config --global pull.rebase false
+          echo "✅ Git 配置完成"
+          
       - name: 设置远程仓库
         if: ${{ env.commit }}
         run: |
@@ -80,7 +88,7 @@ jobs:
           git fetch --all --tags
           git fetch upstream --tags
           echo "✅ 远程仓库设置完成"
-
+          
       - name: 执行合并
         if: ${{ env.commit }}
         run: |
@@ -97,17 +105,17 @@ jobs:
               git push origin beta
               if [ $? -eq 0 ]; then
                 echo "✅ 有更新无冲突：合并成功并已推送更新"
-                echo "merge_result=success" > $GITHUB_OUTPUT
+                echo "merge_result=success" >> $GITHUB_OUTPUT
                 LATEST_COMMIT=$(git log -1 --pretty=format:"%h - %s")
-                echo "$LATEST_COMMIT" > $GITHUB_OUTPUT
+                echo "LATEST_COMMIT=$LATEST_COMMIT" >> $GITHUB_OUTPUT
               else
                 echo "❌ 推送失败，请检查权限设置"
-                echo "merge_result=push_failed" > $GITHUB_OUTPUT
+                echo "merge_result=push_failed" >> $GITHUB_OUTPUT
               fi
             else
               echo "ℹ️  合并成功但无实质性更改"
               git reset --hard HEAD
-              echo "merge_result=no_changes" > $GITHUB_OUTPUT
+              echo "merge_result=no_changes" >> $GITHUB_OUTPUT
             fi
           else
             echo "⚠️  检测到合并冲突"
@@ -116,12 +124,12 @@ jobs:
               conflict_files=$(git status --porcelain | grep -E '^(AA|UU|DU|UD)' | cut -c4- | tr '\n' ' ' | sed 's/ $//')
             fi
             echo "📋 冲突文件: $conflict_files"
-            echo "conflict_files=$conflict_files" > $GITHUB_OUTPUT
-            echo "merge_result=conflict" > $GITHUB_OUTPUT
+            echo "conflict_files=$conflict_files" >> $GITHUB_OUTPUT
+            echo "merge_result=conflict" >> $GITHUB_OUTPUT
           fi
-
       - name: 列出所有冲突行
         if: steps.merge.outputs.merge_result == 'conflict'
+        id: list-conflicts
         run: |
           echo "✅ 检测到冲突，开始收集..."
           echo "🔍 正在收集所有冲突行（含行号）..."
@@ -186,7 +194,6 @@ jobs:
             echo "conflict_details=无具体冲突内容" > /tmp/conflict_details.txt
             echo "⚠️ 未提取到任何冲突行"
           fi
-
       - name: 发送冲突通知到企业微信
         if: steps.merge.outputs.merge_result == 'conflict'
         run: |
@@ -233,7 +240,6 @@ jobs:
         if: ${{ env.commit }}
         run: |
           sdkmanager "platform-tools" "platforms;android-37.0" "build-tools;37.0.0"
-
       - name: Run WebSocket danmaku tests
         if: ${{ env.commit }}
         run: |
@@ -242,7 +248,6 @@ jobs:
             :app:testMobileArm64_v8aDebugUnitTest \
             --tests 'com.fongmi.android.tv.player.danmaku.*' \
             --no-daemon
-
       - name: Resolve release tag
         if: ${{ env.commit }}
         id: meta
@@ -289,7 +294,6 @@ jobs:
             echo "channel=$CHANNEL"
             echo "apk_suffix=$APK_SUFFIX"
           } >> "$GITHUB_OUTPUT"
-
       - name: Configure release signing
         if: ${{ env.commit }}
         env:
@@ -318,7 +322,6 @@ jobs:
             echo "keyPassword=$KEY_PASS"
           } > local.properties
           echo "Release signing configured"
-
       - name: Set up gradle
         if: ${{ env.commit }}
         uses: gradle/actions/setup-gradle@v6
@@ -337,7 +340,6 @@ jobs:
             :app:assembleLeanbackArm64_v8aRelease \
             :app:assembleLeanbackArmeabi_v7aRelease \
             --no-daemon
-
       - name: Collect artifacts
         if: ${{ env.commit }}
         run: |
@@ -345,7 +347,6 @@ jobs:
           mkdir -p dist
           cp Release/apk/*.apk dist/
           ls -lh dist/
-
       - name: Prepare release notes input
         if: ${{ env.commit }}
         id: release_notes
@@ -354,7 +355,6 @@ jobs:
         run: |
           python3 - <<'PY'
           import os
-
           raw = os.environ.get("RELEASE_NOTES_RAW", "").strip()
           notes = (
               raw
@@ -375,7 +375,6 @@ jobs:
                   fh.write("\n")
               fh.write(f"{delimiter}\n")
           PY
-
       - name: Generate update manifests
         if: ${{ env.commit }}
         env:
@@ -387,7 +386,6 @@ jobs:
           import hashlib
           import json
           import os
-
           tag = "${{ steps.meta.outputs.tag }}"
           notes = os.environ.get("RELEASE_NOTES", "").strip()
           release_download_base = os.environ["GITHUB_RELEASE_DOWNLOAD_BASE"]
@@ -430,7 +428,6 @@ jobs:
             --notes "$NOTES" \
             $PRERELEASE_FLAG \
             dist/*.apk dist/*.json
-
       - name: Sync to CNB
         if: ${{ env.commit && inputs.sync_cnb }}
         env:
@@ -443,7 +440,6 @@ jobs:
           commit: ${{ env.commit }} 
         run: |
           .github/scripts/sync-cnb-release.sh
-
       - name: Upload workflow artifacts
         if: ${{ env.commit }}
         uses: actions/upload-artifact@v4
