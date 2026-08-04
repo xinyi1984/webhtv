@@ -127,6 +127,7 @@ jobs:
             echo "conflict_files=$conflict_files" >> $GITHUB_OUTPUT
             echo "merge_result=conflict" >> $GITHUB_OUTPUT
           fi
+          
       - name: 列出所有冲突行
         if: steps.merge.outputs.merge_result == 'conflict'
         id: list-conflicts
@@ -194,6 +195,7 @@ jobs:
             echo "conflict_details=无具体冲突内容" > /tmp/conflict_details.txt
             echo "⚠️ 未提取到任何冲突行"
           fi
+          
       - name: 发送冲突通知到企业微信
         if: steps.merge.outputs.merge_result == 'conflict'
         run: |
@@ -240,6 +242,7 @@ jobs:
         if: ${{ env.commit }}
         run: |
           sdkmanager "platform-tools" "platforms;android-37.0" "build-tools;37.0.0"
+          
       - name: Run WebSocket danmaku tests
         if: ${{ env.commit }}
         run: |
@@ -248,6 +251,7 @@ jobs:
             :app:testMobileArm64_v8aDebugUnitTest \
             --tests 'com.fongmi.android.tv.player.danmaku.*' \
             --no-daemon
+            
       - name: Resolve release tag
         if: ${{ env.commit }}
         id: meta
@@ -294,6 +298,7 @@ jobs:
             echo "channel=$CHANNEL"
             echo "apk_suffix=$APK_SUFFIX"
           } >> "$GITHUB_OUTPUT"
+          
       - name: Configure release signing
         if: ${{ env.commit }}
         env:
@@ -322,6 +327,7 @@ jobs:
             echo "keyPassword=$KEY_PASS"
           } > local.properties
           echo "Release signing configured"
+          
       - name: Set up gradle
         if: ${{ env.commit }}
         uses: gradle/actions/setup-gradle@v6
@@ -340,6 +346,7 @@ jobs:
             :app:assembleLeanbackArm64_v8aRelease \
             :app:assembleLeanbackArmeabi_v7aRelease \
             --no-daemon
+            
       - name: Collect artifacts
         if: ${{ env.commit }}
         run: |
@@ -347,6 +354,7 @@ jobs:
           mkdir -p dist
           cp Release/apk/*.apk dist/
           ls -lh dist/
+          
       - name: Prepare release notes input
         if: ${{ env.commit }}
         id: release_notes
@@ -355,7 +363,24 @@ jobs:
         run: |
           python3 - <<'PY'
           import os
+          import urllib.request
+          import json
+          import sys 
+
           raw = os.environ.get("RELEASE_NOTES_RAW", "").strip()
+
+          if not raw:
+              try:
+                  url = "https://api.github.com/repos/fish2018/webhtv/releases"
+                  with urllib.request.urlopen(url, timeout=10) as resp:
+                      if resp.status == 200:
+                          data = json.loads(resp.read().decode())
+                          if data and len(data) > 0:
+                              raw = data[0].get("body", "").strip()
+                              print(f"RELEASE_NOTES_RAW: {raw}", file=sys.stderr)
+              except Exception:
+                  pass
+
           notes = (
               raw
               .replace("\\r\\n", "\n")
@@ -364,9 +389,11 @@ jobs:
               .replace('\\"', '"')
               .replace("\\'", "'")
           )
+
           delimiter = "RELEASE_NOTES_EOF"
           while delimiter in notes:
               delimiter += "_"
+
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
               fh.write(f"has_notes={'true' if notes else 'false'}\n")
               fh.write(f"notes<<{delimiter}\n")
@@ -375,6 +402,7 @@ jobs:
                   fh.write("\n")
               fh.write(f"{delimiter}\n")
           PY
+          
       - name: Generate update manifests
         if: ${{ env.commit }}
         env:
@@ -428,6 +456,7 @@ jobs:
             --notes "$NOTES" \
             $PRERELEASE_FLAG \
             dist/*.apk dist/*.json
+            
       - name: Sync to CNB
         if: ${{ env.commit && inputs.sync_cnb }}
         env:
@@ -440,6 +469,7 @@ jobs:
           commit: ${{ env.commit }} 
         run: |
           .github/scripts/sync-cnb-release.sh
+          
       - name: Upload workflow artifacts
         if: ${{ env.commit }}
         uses: actions/upload-artifact@v4
