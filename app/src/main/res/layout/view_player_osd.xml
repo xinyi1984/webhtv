@@ -145,8 +145,9 @@
     <com.fongmi.android.tv.ui.custom.MiniProgressView
         android:id="@+id/osdMiniProgress"
         android:layout_width="match_parent"
-        android:layout_height="2dp"
+        android:layout_height="1dp"
         android:layout_gravity="bottom"
+        android:background="@android:color/transparent"
         android:visibility="gone"
         tools:visibility="visible" />
 
