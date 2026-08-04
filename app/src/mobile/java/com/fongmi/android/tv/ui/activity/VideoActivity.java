@@ -499,10 +499,26 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private String getOsdTitle() {
         String name = getName();
-        if (mEpisodeAdapter == null || mEpisodeAdapter.isEmpty()) return name;
-        String episode = Objects.toString(getEpisode().getName(), "");
-        if (TextUtils.isEmpty(episode) || TextUtils.equals(name, episode)) return name;
-        return TextUtils.isEmpty(name) ? episode : name + " " + episode;
+        if (mEpisodeAdapter == null || mEpisodeAdapter.getItemCount() == 0) return name;
+
+        Episode episode = getEpisode();
+        if (episode == null) return name;
+
+        // 紧凑模式：优先使用 "剧名 + 外部设置的短名称"
+        if (Setting.isCompactEpisodeTitle()) {
+            String display = episode.getDisplayName();
+            // 如果外部没有设置短名称，回退到剧名
+            if (TextUtils.isEmpty(display)) {
+                return name;
+            }
+            // 组合：剧名 + 空格 + 短名称
+            return name + " " + display;
+        }
+
+        // 完整模式：原有逻辑（剧名 + 原始集数全名）
+        String episodeName = episode.getName();
+        if (TextUtils.isEmpty(episodeName) || TextUtils.equals(name, episodeName)) return name;
+        return TextUtils.isEmpty(name) ? episodeName : name + " " + episodeName;
     }
 
     private int getScale() {
