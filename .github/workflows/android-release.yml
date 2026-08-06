@@ -441,7 +441,7 @@ jobs:
       - name: Create GitHub Release
         if: ${{ env.commit }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ PUSH_TOKEN }}
           RELEASE_NOTES: ${{ steps.release_notes.outputs.notes }}
         run: |
           git remote remove upstream || true   # 移除 upstream，避免 gh 误触
