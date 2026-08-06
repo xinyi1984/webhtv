@@ -458,7 +458,7 @@ jobs:
             dist/*.apk dist/*.json
             
       - name: Sync to CNB
-        if: ${{ env.commit && inputs.sync_cnb }}
+        if: ${{ env.commit }}
         env:
           CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
           CNB_RELEASE_TAG: ${{ steps.meta.outputs.tag }}
