@@ -236,7 +236,7 @@ jobs:
 
       - name: Set up Android SDK
         if: ${{ env.commit }}
-        uses: android-actions/setup-android@v5
+        uses: android-actions/setup-android@v4
 
       - name: Install Android packages
         if: ${{ env.commit }}
