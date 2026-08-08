@@ -91,6 +91,7 @@ jobs:
           
       - name: 执行合并
         if: ${{ env.commit }}
+        id: merge
         run: |
           set -e
           echo "🔄 开始合并上游更新..."
@@ -198,6 +199,7 @@ jobs:
           
       - name: 发送冲突通知到企业微信
         if: steps.merge.outputs.merge_result == 'conflict'
+        id: send-conflict-notification
         run: |
           echo "📱 发送冲突通知到企业微信..."
           conflict_files=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
