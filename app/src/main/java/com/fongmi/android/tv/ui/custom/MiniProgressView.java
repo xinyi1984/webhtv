@@ -46,7 +46,7 @@ public class MiniProgressView extends View {
         int width = getWidth();
         int height = getHeight();
         if (width <= 0 || height <= 0) return;
-        canvas.drawRect(0, 0, width, height, trackPaint);
+        //canvas.drawRect(0, 0, width, height, trackPaint); // ✅ 已注释，轨道透明
         float playedWidth = width * (position / (float) duration);
         if (playedWidth > 0) canvas.drawRect(0, 0, playedWidth, height, playedPaint);
     }
