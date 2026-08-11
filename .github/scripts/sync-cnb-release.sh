@@ -9,7 +9,7 @@ fi
 
 CNB_API_ENDPOINT="${CNB_API_ENDPOINT:-https://api.cnb.cool}"
 CNB_WEB_ENDPOINT="${CNB_WEB_ENDPOINT:-https://cnb.cool}"
-CNB_REPO_SLUG="${CNB_REPO_SLUG:-fish2035/webhtv-release}"
+CNB_REPO_SLUG="${CNB_REPO_SLUG:-ysysxy/webhtv-release}"
 CNB_REPO_URL="${CNB_REPO_URL:-${CNB_WEB_ENDPOINT}/${CNB_REPO_SLUG}.git}"
 CNB_TARGET_BRANCH="${CNB_TARGET_BRANCH:-main}"
 CNB_RELEASE_TAG="${CNB_RELEASE_TAG:?CNB_RELEASE_TAG is required}"
@@ -62,6 +62,10 @@ clone_cnb() {
 }
 
 clone_cnb
+if [ -n "${commit:-}" ]; then
+    sed -i "/fish2018\/webhtv/s#Updated: [a-zA-Z0-9]*#Updated: ${commit}#" cnb-mirror/README.md
+    git -C cnb-mirror add README.md
+fi
 mkdir -p cnb-mirror/apk
 cp "${json_files[@]}" cnb-mirror/apk/
 git -C cnb-mirror config user.name "github-actions[bot]"
