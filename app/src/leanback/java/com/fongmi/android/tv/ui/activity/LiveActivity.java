@@ -184,7 +184,7 @@ public class LiveActivity extends PlaybackActivity implements GroupAdapter.OnCli
             public String getTitle() {
                 return mChannel == null ? "" : mChannel.getName();
             }
-        }, 14f);
+        }, 16f);
         setVideoView();
         setViewModel();
     }
