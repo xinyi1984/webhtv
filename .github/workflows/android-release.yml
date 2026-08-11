@@ -1,14 +1,16 @@
 name: Android Release
 
 on:
+  schedule:
+    - cron: '03 3 * * *'
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Release tag, blank = v<versionName>-yyyyMMddHHmm or v<versionName>-beta-yyyyMMddHHmm"
+        description: "Release tag, blank = v<versionName>-yyyyMMddHHmm or v<versionName>-fongmi-sync-yyyyMMddHHmm"
         required: false
         type: string
       release_channel:
-        description: "Release channel, auto uses beta on fongmi-sync"
+        description: "Release channel, auto uses beta on beta"
         required: false
         default: auto
         type: choice
@@ -38,8 +40,8 @@ env:
   TZ: Asia/Shanghai
   CNB_API_ENDPOINT: https://api.cnb.cool
   CNB_WEB_ENDPOINT: https://cnb.cool
-  CNB_REPO_SLUG: fish2035/webhtv-release
-  CNB_REPO_URL: https://cnb.cool/fish2035/webhtv-release.git
+  CNB_REPO_SLUG: ysysxy/webhtv-release
+  CNB_REPO_URL: https://cnb.cool/ysysxy/webhtv-release.git
 
 jobs:
   release:
@@ -49,48 +51,222 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: gradle
-
+          
+      - name: Check New Commit
+        run: |
+          upStream=https://github.com/fish2018/webhtv
+          echo "upStream=$upStream" >> $GITHUB_ENV
+          commit=$(curl -sL $upStream/commits/fongmi-sync |grep -o "/fish2018/webhtv/commit/[a-z0-9]\+" |head -1 | cut -d\/ -f5)
+          if [[ -z "${commit}" ]]; then
+            commit=$(curl -s "https://api.github.com/repos/fish2018/webhtv/commits/fongmi-sync?per_page=1" | jq -r '.sha' )
+          fi
+          curl -s -o readme.md https://cnb.cool/ysysxy/webhtv-release/-/git/raw/main/README.md
+          if ! grep -q "$commit" readme.md; then
+            echo "commit=$commit" >> $GITHUB_ENV
+            echo "commitS=${commit:0:7}" >> $GITHUB_ENV
+          fi
+          echo "commit=$commit"
+          
+      - name: 配置 Git
+        if: ${{ env.commit }}
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git config --global pull.rebase false
+          echo "✅ Git 配置完成"
+          
+      - name: 设置远程仓库
+        if: ${{ env.commit }}
+        run: |
+          git checkout fongmi-sync
+          git remote set-url origin https://xinyi1984:${{ secrets.PUSH_TOKEN }}@github.com/xinyi1984/webhtv.git
+          git remote add upstream https://github.com/fish2018/webhtv || true
+          git remote set-url upstream https://github.com/fish2018/webhtv.git
+          git fetch --all --tags
+          git fetch upstream --tags
+          echo "✅ 远程仓库设置完成"
+          
+      - name: 执行合并
+        if: ${{ env.commit }}
+        id: merge
+        run: |
+          set -e
+          echo "🔄 开始合并上游更新..."
+          echo "🔍 当前分支: $(git branch --show-current)"
+          echo "🔍 工作目录: $(pwd)"
+          git pull origin fongmi-sync --no-rebase --allow-unrelated-histories
+          if git merge upstream/fongmi-sync --no-commit --no-ff --allow-unrelated-histories; then
+            echo "✅ 合并成功，检查是否有实际更改"
+            if ! git diff --cached --quiet || ! git diff --quiet; then
+              echo "📝 检测到实质性更新，准备提交"
+              git commit -m "🔗 合并上游 fongmi-sync 更新 - $(date +'%Y年%m月%d日 %H:%M')"
+              git push origin fongmi-sync
+              if [ $? -eq 0 ]; then
+                echo "✅ 有更新无冲突：合并成功并已推送更新"
+                echo "merge_result=success" >> $GITHUB_OUTPUT
+                LATEST_COMMIT=$(git log -1 --pretty=format:"%h - %s")
+                echo "LATEST_COMMIT=$LATEST_COMMIT" >> $GITHUB_OUTPUT
+              else
+                echo "❌ 推送失败，请检查权限设置"
+                echo "merge_result=push_failed" >> $GITHUB_OUTPUT
+              fi
+            else
+              echo "ℹ️  合并成功但无实质性更改"
+              git reset --hard HEAD
+              echo "merge_result=no_changes" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "⚠️  检测到合并冲突"
+            conflict_files=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
+            if [ -z "$conflict_files" ]; then
+              conflict_files=$(git status --porcelain | grep -E '^(AA|UU|DU|UD)' | cut -c4- | tr '\n' ' ' | sed 's/ $//')
+            fi
+            echo "📋 冲突文件: $conflict_files"
+            echo "conflict_files=$conflict_files" >> $GITHUB_OUTPUT
+            echo "merge_result=conflict" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: 列出所有冲突行
+        if: steps.merge.outputs.merge_result == 'conflict'
+        id: list-conflicts
+        run: |
+          echo "✅ 检测到冲突，开始收集..."
+          echo "🔍 正在收集所有冲突行（含行号）..."
+          > conflict_details.txt
+          conflict_files=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
+          if [ -z "$conflict_files" ]; then
+            conflict_files=$(git status --porcelain | grep -E '^(AA|UU|DU|UD)' | cut -c4- | tr '\n' ' ' | sed 's/ $//')
+          fi
+          echo "📋 冲突文件列表: $conflict_files"
+          echo "conflict_files=$conflict_files" >> $GITHUB_OUTPUT
+          if [ -z "$conflict_files" ]; then
+            echo "⚠️ 没有检测到冲突文件，跳过提取" >> conflict_details.txt
+          else
+            conflict_block=1
+            for file in $conflict_files; do
+              echo "📄 处理文件: $file"
+              echo "📄 文件: $file" >> conflict_details.txt
+              echo "----------------------------------------" >> conflict_details.txt
+              if [ ! -f "$file" ]; then
+                echo "⚠️  文件 $file 不存在，跳过" >> conflict_details.txt
+                continue
+              fi
+              if [[ "$file" == *.aar ]] || [[ "$file" == *.jar ]] || [[ "$file" == *.so ]] || [[ "$file" == *.apk ]] || [[ "$file" == *.png ]] || [[ "$file" == *.jpg ]] || [[ "$file" == *.gif ]]; then
+                echo "⚠️  跳过二进制文件: $file" >> conflict_details.txt
+                echo "" >> conflict_details.txt
+                continue
+              fi
+              awk -v block="$conflict_block" '
+                BEGIN { in_conflict = 0; current = block }
+                /^<<<<<<< HEAD$/ {
+                  in_conflict = 1;
+                  start_line = NR;
+                  print "【冲突块" current "】开始于第 " start_line " 行";
+                  print "====== 本地版本 ======";
+                  next;
+                }
+                /^=======$/ {
+                  if (in_conflict) {
+                    print "====== 上游版本 ======";
+                    next;
+                  }
+                }
+                /^>>>>>>> upstream\/fongmi-sync$/ {
+                  if (in_conflict) {
+                    in_conflict = 0;
+                    print "----------------------------------------";
+                    print "";
+                    current++;
+                    next;
+                  }
+                }
+                in_conflict { print $0 }
+              ' "$file" >> conflict_details.txt
+              echo "✅ 文件 $file 处理完成" >> conflict_details.txt
+            done
+          fi
+          if [ -s conflict_details.txt ]; then
+            echo "=== 冲突详情 ==="
+            cat conflict_details.txt
+            echo "conflict_details=$(cat conflict_details.txt | base64 -w 0)" > /tmp/conflict_details.txt
+          else
+            echo "conflict_details=无具体冲突内容" > /tmp/conflict_details.txt
+            echo "⚠️ 未提取到任何冲突行"
+          fi
+          
+      - name: 发送冲突通知到企业微信
+        if: steps.merge.outputs.merge_result == 'conflict'
+        id: send-conflict-notification
+        run: |
+          echo "📱 发送冲突通知到企业微信..."
+          conflict_files=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
+          if [ -z "$conflict_files" ]; then
+            conflict_files=$(git status --porcelain | grep -E '^(AA|UU|DU|UD)' | cut -c4- | tr '\n' ' ' | sed 's/ $//')
+          fi
+          if [ -z "$conflict_files" ]; then
+            conflict_files="${{ steps.list-conflicts.outputs.conflict_files }}"
+          fi
+          MESSAGE="🚨 webhtv项目合并冲突\n\n"
+          MESSAGE="${MESSAGE}> 分支: fongmi-sync\n"
+          MESSAGE="${MESSAGE}> 冲突文件: ${conflict_files}\n\n"
+          MESSAGE="${MESSAGE}请手动解决冲突后重新运行"
+          curl -s -X POST "${{ secrets.WECHAT_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"msgtype\": \"text\",
+              \"text\": {
+                \"content\": \"$MESSAGE\"
+              }
+            }"
+          echo "✅ 已发送企业微信通知"
+          echo "❌ 检测到合并冲突"
+          echo "冲突文件: ${conflict_files}"
+          exit 1
+          
       - name: Set up Python 3.10
-        uses: actions/setup-python@v5
+        if: ${{ env.commit }}
+        uses: actions/setup-python@v6
         with:
           python-version: "3.10"
 
       - name: Verify bundled MPV native assets
+        if: ${{ env.commit }}
         run: bash scripts/verify_mpv_native_assets.sh --require-elf
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        if: ${{ env.commit }}
+        uses: android-actions/setup-android@v4
 
       - name: Install Android packages
+        if: ${{ env.commit }}
         run: |
           sdkmanager "platform-tools" "platforms;android-37.0" "build-tools;37.0.0"
-
+          
+      - name: Set up gradle
+        if: ${{ env.commit }}
+        uses: gradle/actions/setup-gradle@v6
+          
       - name: Run WebSocket danmaku tests
+        if: ${{ env.commit }}
         run: |
           chmod +x ./gradlew
           ./gradlew \
             :app:testMobileArm64_v8aDebugUnitTest \
             --tests 'com.fongmi.android.tv.player.danmaku.*' \
             --no-daemon
-
+            
       - name: Resolve release tag
+        if: ${{ env.commit }}
         id: meta
         run: |
           VERSION_NAME="$(sed -n 's/^[[:space:]]*versionName[[:space:]]*"\([^"]*\)".*/\1/p' app/build.gradle | head -1)"
           VERSION_CODE="$(sed -n 's/^[[:space:]]*versionCode[[:space:]]*\([0-9][0-9]*\).*/\1/p' app/build.gradle | head -1)"
           CHANNEL="${{ inputs.release_channel }}"
           if [ "$CHANNEL" = "auto" ] || [ -z "$CHANNEL" ]; then
-            if [ "${{ github.ref_name }}" = "fongmi-sync" ]; then
+            if [ "${{ github.ref_name }}" = "beta" ]; then
               CHANNEL="beta"
             else
               CHANNEL="stable"
@@ -128,8 +304,9 @@ jobs:
             echo "channel=$CHANNEL"
             echo "apk_suffix=$APK_SUFFIX"
           } >> "$GITHUB_OUTPUT"
-
+          
       - name: Configure release signing
+        if: ${{ env.commit }}
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
@@ -158,6 +335,7 @@ jobs:
           echo "Release signing configured"
 
       - name: Build four release APKs
+        if: ${{ env.commit }}
         env:
           WEBHTV_RELEASE_TAG: ${{ steps.meta.outputs.tag }}
           WEBHTV_APK_SUFFIX: ${{ steps.meta.outputs.apk_suffix }}
@@ -170,23 +348,41 @@ jobs:
             :app:assembleLeanbackArm64_v8aRelease \
             :app:assembleLeanbackArmeabi_v7aRelease \
             --no-daemon
-
+            
       - name: Collect artifacts
+        if: ${{ env.commit }}
         run: |
           rm -rf dist
           mkdir -p dist
           cp Release/apk/*.apk dist/
           ls -lh dist/
-
+          
       - name: Prepare release notes input
+        if: ${{ env.commit }}
         id: release_notes
         env:
           RELEASE_NOTES_RAW: ${{ inputs.release_notes }}
         run: |
           python3 - <<'PY'
           import os
+          import urllib.request
+          import json
+          import sys 
 
           raw = os.environ.get("RELEASE_NOTES_RAW", "").strip()
+
+          if not raw:
+              try:
+                  url = "https://api.github.com/repos/fish2018/webhtv/releases"
+                  with urllib.request.urlopen(url, timeout=10) as resp:
+                      if resp.status == 200:
+                          data = json.loads(resp.read().decode())
+                          if data and len(data) > 0:
+                              raw = data[0].get("body", "").strip()
+                              print(f"RELEASE_NOTES_RAW: {raw}", file=sys.stderr)
+              except Exception:
+                  pass
+
           notes = (
               raw
               .replace("\\r\\n", "\n")
@@ -195,9 +391,11 @@ jobs:
               .replace('\\"', '"')
               .replace("\\'", "'")
           )
+
           delimiter = "RELEASE_NOTES_EOF"
           while delimiter in notes:
               delimiter += "_"
+
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
               fh.write(f"has_notes={'true' if notes else 'false'}\n")
               fh.write(f"notes<<{delimiter}\n")
@@ -206,8 +404,9 @@ jobs:
                   fh.write("\n")
               fh.write(f"{delimiter}\n")
           PY
-
+          
       - name: Generate update manifests
+        if: ${{ env.commit }}
         env:
           RELEASE_NOTES: ${{ steps.release_notes.outputs.notes }}
           GITHUB_RELEASE_DOWNLOAD_BASE: https://github.com/${{ github.repository }}/releases/download/${{ steps.meta.outputs.tag }}
@@ -217,7 +416,6 @@ jobs:
           import hashlib
           import json
           import os
-
           tag = "${{ steps.meta.outputs.tag }}"
           notes = os.environ.get("RELEASE_NOTES", "").strip()
           release_download_base = os.environ["GITHUB_RELEASE_DOWNLOAD_BASE"]
@@ -241,14 +439,16 @@ jobs:
                   fh.write("\n")
           PY
           ls -lh dist/
-
+          
       - name: Create GitHub Release
+        if: ${{ env.commit }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
           RELEASE_NOTES: ${{ steps.release_notes.outputs.notes }}
         run: |
+          git remote remove upstream || true   # 移除 upstream，避免 gh 误触
           PRERELEASE_FLAG=""
-          if [ "${{ inputs.prerelease }}" = "true" ] || [ "${{ steps.meta.outputs.channel }}" = "beta" ]; then
+          if [ "${{ inputs.prerelease }}" = "true" ] || [ "${{ steps.meta.outputs.channel }}" = "fongmi-sync" ]; then
             PRERELEASE_FLAG="--prerelease"
           fi
           NOTES="${RELEASE_NOTES:-手动触发 GitHub Actions 构建发布。}"
@@ -258,21 +458,23 @@ jobs:
             --notes "$NOTES" \
             $PRERELEASE_FLAG \
             dist/*.apk dist/*.json
-
+            
       - name: Sync to CNB
-        if: ${{ inputs.sync_cnb }}
+        if: ${{ env.commit }}
         env:
           CNB_TOKEN: ${{ secrets.CNB_TOKEN }}
           CNB_RELEASE_TAG: ${{ steps.meta.outputs.tag }}
           CNB_RELEASE_TITLE: ${{ steps.meta.outputs.title }}
           CNB_RELEASE_NOTES: ${{ steps.release_notes.outputs.notes }}
-          CNB_RELEASE_PRERELEASE: ${{ inputs.prerelease == true || steps.meta.outputs.channel == 'beta' }}
+          CNB_RELEASE_PRERELEASE: ${{ inputs.prerelease == true || steps.meta.outputs.channel == 'fongmi-sync' }}
           CNB_RELEASE_LATEST: ${{ steps.meta.outputs.channel == 'stable' }}
+          commit: ${{ env.commit }} 
         run: |
           .github/scripts/sync-cnb-release.sh
-
+          
       - name: Upload workflow artifacts
-        uses: actions/upload-artifact@v4
+        if: ${{ env.commit }}
+        uses: actions/upload-artifact@v7
         with:
           name: webhtv-${{ steps.meta.outputs.tag }}
           path: dist/*
