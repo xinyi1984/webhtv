@@ -275,7 +275,7 @@ public class PlayerOsdController {
 
     private void setTextSize(float sp) {
         topLeft.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
-        topRight.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        topRight.setTextSize(TypedValue.COMPLEX_UNIT_SP, root.getResources().getConfiguration().screenWidthDp >= 960 ? 20f : 16f);
         bottomLeft.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
         bottomRight.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
         diagnostics.setTextSize(TypedValue.COMPLEX_UNIT_SP, getDiagnosticsSp());
